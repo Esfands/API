@@ -16,7 +16,6 @@ import (
 )
 
 var db *sql.DB
-var dbErr error
 
 var client *http.Client
 
@@ -54,6 +53,8 @@ func main() {
 
 	router.HandleFunc("/twitch/id", getTwitchId).Methods("GET")
 	router.HandleFunc("/twitch/emotes", getTwitchEmotes).Methods("GET")
+
+	router.HandleFunc("/eventsub/", eventsubRecievedNotification).Methods("POST")
 
 	port := os.Getenv("PORT")
 	if port == "" {
