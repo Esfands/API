@@ -1,32 +1,35 @@
 package main
 
 import (
-	"bytes"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
-	"time"
+	"strings"
 )
 
+type ResponseCommon struct {
+	StatusCode   int
+	Header       http.Header
+	Error        string `json:"error"`
+	ErrorStatus  int    `json:"status"`
+	ErrorMessage string `json:"message"`
+}
+
 type User struct {
-	ID              string    `json:"id"`
-	Login           string    `json:"login"`
-	DisplayName     string    `json:"display_name"`
-	Type            string    `json:"type"`
-	BroadcasterType string    `json:"broadcaster_type"`
-	Description     string    `json:"description"`
-	ProfileImageURL string    `json:"profile_image_url"`
-	OfflineImageURL string    `json:"offline_image_url"`
-	ViewCount       int       `json:"view_count"`
-	Email           string    `json:"email"`
-	CreatedAt       time.Time `json:"created_at"`
+	ID              string `json:"id"`
+	Login           string `json:"login"`
+	DisplayName     string `json:"display_name"`
+	Type            string `json:"type"`
+	BroadcasterType string `json:"broadcaster_type"`
+	Description     string `json:"description"`
+	ProfileImageURL string `json:"profile_image_url"`
+	OfflineImageURL string `json:"offline_image_url"`
+	ViewCount       int    `json:"view_count"`
+	Email           string `json:"email"`
+	CreatedAt       Time   `json:"created_at"`
 }
 
 type ManyUsers struct {
@@ -231,29 +234,24 @@ type EventSubChannelPointsVoting = EventSubBitVoting
 // Data for a channel poll progress event, it's the same as the channel poll begin event
 type EventSubChannelPollProgressEvent = EventSubChannelPollBeginEvent
 
-/* Twitch */
-func getTwitchId(w http.ResponseWriter, r *http.Request) {
-	w.Header().Add("Content-Type", "application/json")
-	keys, ok := r.URL.Query()["user"]
+/* func makeTwitchRequest(w http.ResponseWriter, url string) []byte {
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Add("Authorization", "Bearer"+os.Getenv("YBD_TOKEN"))
+	req.Header.Add("Client-Id", os.Getenv("YBD_ID"))
 
-	if !ok || len(keys[0]) < 1 {
-		json.NewEncoder(w).Encode("URL param 'user' is missing")
-		return
-	}
-
-	userId := keys[0]
-
-	// Get the endpoint by checking if param is a number or string
-	var endPoint string
-	val, err := strconv.Atoi(userId)
+	response, err := client.Do(req)
 	if err != nil {
-		endPoint = "login=" + userId
-	} else {
-		fmt.Println(val)
-		endPoint = "id=" + string(val)
+		json.NewEncoder(w).Encode(err)
 	}
 
-	req, _ := http.NewRequest("GET", "https://api.twitch.tv/helix/users?"+endPoint, nil)
+	defer response.Body.Close()
+	body, _ := ioutil.ReadAll(response.Body)
+
+	return body
+} */
+
+func getTwitchUserId(w http.ResponseWriter, endpoint string) (data ManyUsers) {
+	req, _ := http.NewRequest("GET", "https://api.twitch.tv/helix/users?"+endpoint, nil)
 	req.Header.Add("Authorization", "Bearer "+os.Getenv("YBD_TOKEN"))
 	req.Header.Add("Client-Id", os.Getenv("YBD_ID"))
 
@@ -264,31 +262,51 @@ func getTwitchId(w http.ResponseWriter, r *http.Request) {
 
 	defer response.Body.Close()
 	body, _ := ioutil.ReadAll(response.Body)
-	var userInfo ManyUsers
+	userInfo := ManyUsers{}
 	if err := json.Unmarshal(body, &userInfo); err != nil {
 		log.Fatal(err)
 	}
+
+	data = userInfo
+	return
+}
+
+/* Twitch */
+func getTwitchId(w http.ResponseWriter, r *http.Request) {
+	w.Header().Add("Content-Type", "application/json")
+
+	parts := strings.Split(r.URL.Path, "/")
+	userId := parts[3]
+
+	// Get the endpoint by checking if param is a number or string
+	var endPoint string
+	val, err := strconv.Atoi(userId)
+	if err != nil {
+		endPoint = "login=" + userId
+	} else {
+		endPoint = "id=" + strconv.Itoa(val)
+	}
+
+	userInfo := getTwitchUserId(w, endPoint)
 
 	json.NewEncoder(w).Encode(userInfo)
 }
 
 func getTwitchEmotes(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Content-Type", "application/json")
-	keys, ok := r.URL.Query()["user"]
 
-	if !ok || len(keys[0]) < 1 {
-		json.NewEncoder(w).Encode("URL param 'user' is missing")
-		return
-	}
-
-	userParam := keys[0]
+	parts := strings.Split(r.URL.Path, "/")
+	userParam := parts[3]
 
 	var userId int
 	valParam, err := strconv.Atoi(userParam)
 	if err != nil {
-		// TODO: Make it so it fetches the ID since they put in a username, for now it returns an error
-		json.NewEncoder(w).Encode(userParam + " is not a valid ID")
-		return
+		userInfo := getTwitchUserId(w, "login="+userParam)
+		userBody := userInfo.Users[0]
+		userId, err = strconv.Atoi(userBody.ID)
+		if err != nil {
+			panic(err.Error())
+		}
 	} else {
 		// It's an ID so get the emotes
 		userId = valParam
@@ -311,180 +329,4 @@ func getTwitchEmotes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(emoteSets)
-}
-
-// Verify message from EventSub
-func VerifyEventSubNotification(secret string, header http.Header, message string) bool {
-	hmacMessage := []byte(fmt.Sprintf("%s%s%s", header.Get("Twitch-Eventsub-Message-Id"), header.Get("Twitch-Eventsub-Message-Timestamp"), message))
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(hmacMessage)
-	hmacsha256 := fmt.Sprintf("sha256=%s", hex.EncodeToString(mac.Sum(nil)))
-	return hmacsha256 == header.Get("Twitch-Eventsub-Message-Signature")
-}
-
-type eventsubNotification struct {
-	Subscription EventSubSubscription `json:"subscription"`
-	Challenge    string               `json:"challenge"`
-	Event        json.RawMessage      `json:"event"`
-}
-
-// Handles all eventsub events.
-func eventsubRecievedNotification(w http.ResponseWriter, r *http.Request) {
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	defer r.Body.Close()
-	// Verify that Twitch sent the message
-	if !VerifyEventSubNotification(os.Getenv("EVENTSUB_SECRET"), r.Header, string(body)) {
-		log.Println("No valid signature on subscription")
-		return
-	} else {
-		log.Println("Verified signature on subscription")
-	}
-	var vals eventsubNotification
-	err = json.NewDecoder(bytes.NewReader(body)).Decode(&vals)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	// if there's a challenge in the request, respond with only the challenge to verify your eventsub.
-	if vals.Challenge != "" {
-		w.Write([]byte(vals.Challenge))
-		return
-	}
-
-	eventType := bytes.NewBuffer([]byte(vals.Subscription.Type)).String()
-
-	if eventType == "stream.online" {
-		var streamOnline EventSubStreamOnlineEvent
-		err := json.NewDecoder(bytes.NewReader(vals.Event)).Decode(&streamOnline)
-		if err != nil {
-			panic(err.Error())
-		}
-
-		log.Printf("%s just went online.", streamOnline.BroadcasterUserLogin)
-		w.WriteHeader(200)
-		w.Write([]byte("ok"))
-		return
-
-	} else if eventType == "stream.offline" {
-		var streamOffline EventSubStreamOnlineEvent
-		err := json.NewDecoder(bytes.NewReader(vals.Event)).Decode(&streamOffline)
-		if err != nil {
-			panic(err.Error())
-		}
-
-		log.Printf("%s just went offline.", streamOffline.BroadcasterUserLogin)
-		w.WriteHeader(200)
-		w.Write([]byte("ok"))
-		return
-
-	} else if eventType == "stream.update" {
-		fmt.Println("stream.update")
-		var streamUpdate EventSubChannelUpdateEvent
-		err := json.NewDecoder(bytes.NewReader(vals.Event)).Decode(&streamUpdate)
-		if err != nil {
-			panic(err.Error())
-		}
-
-		log.Printf("%s just went offline.", streamUpdate.BroadcasterUserLogin)
-		w.WriteHeader(200)
-		w.Write([]byte("ok"))
-		return
-
-	} else if eventType == "channel.prediction.begin" {
-		fmt.Println("channel.prediction.begin")
-		var streamPredictionBegin EventSubChannelPredictionBeginEvent
-		err := json.NewDecoder(bytes.NewReader(vals.Event)).Decode(&streamPredictionBegin)
-		if err != nil {
-			panic(err.Error())
-		}
-
-		log.Printf("%s just started a prediction: %s", streamPredictionBegin.BroadcasterUserLogin, streamPredictionBegin.Title)
-		w.WriteHeader(200)
-		w.Write([]byte("ok"))
-		return
-
-	} else if eventType == "channel.prediction.progress" {
-		fmt.Println("channel.prediction.progress")
-		var streamPredictionProgress EventSubChannelPredictionProgressEvent
-		err := json.NewDecoder(bytes.NewReader(vals.Event)).Decode(&streamPredictionProgress)
-		if err != nil {
-			panic(err.Error())
-		}
-
-		log.Printf("%s just started a prediction: %s", streamPredictionProgress.BroadcasterUserLogin, streamPredictionProgress.Title)
-		w.WriteHeader(200)
-		w.Write([]byte("ok"))
-		return
-
-	} else if eventType == "channel.prediction.lock" {
-		fmt.Println("channel.prediction.lock")
-		var streamPredictionLock EventSubChannelPredictionLockEvent
-		err := json.NewDecoder(bytes.NewReader(vals.Event)).Decode(&streamPredictionLock)
-		if err != nil {
-			panic(err.Error())
-		}
-
-		log.Printf("%s just locked a prediction: %s", streamPredictionLock.BroadcasterUserLogin, streamPredictionLock.Title)
-		w.WriteHeader(200)
-		w.Write([]byte("ok"))
-		return
-
-	} else if eventType == "channel.prediction.end" {
-		fmt.Println("channel.prediction.end")
-		var streamPredictionEnd EventSubChannelPredictionEndEvent
-		err := json.NewDecoder(bytes.NewReader(vals.Event)).Decode(&streamPredictionEnd)
-		if err != nil {
-			panic(err.Error())
-		}
-
-		log.Printf("%s just ended a prediction: %s", streamPredictionEnd.BroadcasterUserLogin, streamPredictionEnd.Title)
-		w.WriteHeader(200)
-		w.Write([]byte("ok"))
-		return
-
-	} else if eventType == "channel.poll.begin" {
-		fmt.Println("channel.poll.begin")
-		var streamPollBegan EventSubChannelPollBeginEvent
-		err := json.NewDecoder(bytes.NewReader(vals.Event)).Decode(&streamPollBegan)
-		if err != nil {
-			panic(err.Error())
-		}
-
-		log.Printf("%s just started a poll: %s", streamPollBegan.BroadcasterUserLogin, streamPollBegan.Title)
-		w.WriteHeader(200)
-		w.Write([]byte("ok"))
-		return
-
-	} else if eventType == "channel.poll.progress" {
-		fmt.Println("channel.poll.progress")
-		var streamPollProgress EventSubChannelPollProgressEvent
-		err := json.NewDecoder(bytes.NewReader(vals.Event)).Decode(&streamPollProgress)
-		if err != nil {
-			panic(err.Error())
-		}
-
-		log.Printf("%s progess for poll: %s", streamPollProgress.BroadcasterUserLogin, streamPollProgress.Title)
-		w.WriteHeader(200)
-		w.Write([]byte("ok"))
-		return
-
-	} else if eventType == "channel.poll.end" {
-		fmt.Println("channel.poll.end")
-		var streamPollEnd EventSubChannelPollEndEvent
-		err := json.NewDecoder(bytes.NewReader(vals.Event)).Decode(&streamPollEnd)
-		if err != nil {
-			panic(err.Error())
-		}
-
-		log.Printf("%s ended poll: %s", streamPollEnd.BroadcasterUserLogin, streamPollEnd.Title)
-		w.WriteHeader(200)
-		w.Write([]byte("ok"))
-		return
-
-	}
 }

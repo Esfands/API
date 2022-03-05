@@ -99,3 +99,23 @@ None
 `/twitch/emotes`
 - **Params** 
     **Required:** `user=[1234567890]`
+
+### EventSub
+Subscribed to the following events
+- **Channel Information**
+  - [stream.online](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types#streamonline)
+  - [stream.offline](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types#streamoffline)
+  - [channel.update](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types#channelupdate)
+- **Predictions**
+  - [channel.prediction.begin](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types#channelpredictionbegin)
+  - [channel.prediction.progress](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types#channelpredictionprogress)
+  - [channel.prediction.lock](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types#channelpredictionlock)
+  - [channel.prediction.end](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types#channelpredictionend)
+- **Polls**
+  - [channel.poll.begin](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types#channelpollbegin)
+  - [channel.poll.progress](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types#channelpollprogress)
+  - [channel.poll.end](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types#channelpollprogress)
+
+### Ideas
+- Make a bot that logs users in the most active chats
+- Keep track of a users chat badges

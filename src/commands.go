@@ -1,11 +1,11 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
-
-	"github.com/gorilla/mux"
 )
 
 // Commands
@@ -35,6 +35,25 @@ type OTFCommand struct {
 func getAllCommands(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Content-Type", "application/json")
 
+	name := r.URL.Query().Get("name")
+
+	var cmd Command
+	if len(name) != 0 {
+		err := db.QueryRow("SELECT * FROM commands WHERE Name=?", name).Scan(&cmd.Name, &cmd.Aliases, &cmd.Permissions, &cmd.Description, &cmd.DynamicDescription, &cmd.GlobalCooldown, &cmd.Cooldown, &cmd.Testing, &cmd.OfflineOnly, &cmd.OnlineOnly, &cmd.Count)
+
+		switch {
+		case err == sql.ErrNoRows:
+			returnEndpointError(w, "Couldn't find the name: "+name, 404)
+
+		case err != nil:
+			log.Fatal(err)
+
+		default:
+			json.NewEncoder(w).Encode(cmd)
+		}
+		return
+	}
+
 	var commands []Command
 
 	rows, err := db.Query("SELECT * FROM commands")
@@ -53,37 +72,32 @@ func getAllCommands(w http.ResponseWriter, r *http.Request) {
 		}
 		commands = append(commands, cmd)
 	}
+
 	json.NewEncoder(w).Encode(commands)
-}
-
-func getCommand(w http.ResponseWriter, r *http.Request) {
-	w.Header().Add("Content-Type", "application/json")
-
-	vars := mux.Vars(r)
-	key := vars["name"]
-
-	var queryString = "SELECT * FROM commands WHERE Name='" + key + "'"
-	fmt.Println(queryString)
-	row, err := db.Query(queryString)
-	if err != nil {
-		panic(err.Error())
-	}
-	defer row.Close()
-
-	var cmd Command
-	for row.Next() {
-		err := row.Scan(&cmd.Name, &cmd.Aliases, &cmd.Permissions, &cmd.Description, &cmd.DynamicDescription, &cmd.GlobalCooldown, &cmd.Cooldown, &cmd.Testing, &cmd.OfflineOnly, &cmd.OnlineOnly, &cmd.Count)
-		if err != nil {
-			panic(err.Error())
-		}
-	}
-
-	json.NewEncoder(w).Encode(cmd)
 }
 
 /* OTF Commands */
 func getAllOTFCommands(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Content-Type", "application/json")
+
+	nameQ := r.URL.Query().Get("name")
+
+	var otf OTFCommand
+	if len(nameQ) != 0 {
+		err := db.QueryRow("SELECT * FROM otf WHERE Name=?", nameQ).Scan(&otf.Name, &otf.Response, &otf.Creator, &otf.Count)
+
+		switch {
+		case err == sql.ErrNoRows:
+			returnEndpointError(w, "Couldn't find the name: "+nameQ, 404)
+
+		case err != nil:
+			log.Fatal(err)
+
+		default:
+			json.NewEncoder(w).Encode(otf)
+		}
+		return
+	}
 
 	var otfCommands []OTFCommand
 
@@ -104,28 +118,4 @@ func getAllOTFCommands(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(otfCommands)
-}
-
-func getOTFCommand(w http.ResponseWriter, r *http.Request) {
-	w.Header().Add("Content-Type", "application/json")
-
-	vars := mux.Vars(r)
-	key := vars["name"]
-
-	var queryString = "SELECT * FROM otf WHERE Name='" + key + "'"
-	row, err := db.Query(queryString)
-	if err != nil {
-		panic(err.Error())
-	}
-	defer row.Close()
-
-	var otf OTFCommand
-	for row.Next() {
-		err := row.Scan(&otf.Name, &otf.Response, &otf.Creator, &otf.Count)
-		if err != nil {
-			panic(err.Error())
-		}
-	}
-
-	json.NewEncoder(w).Encode(otf)
 }
